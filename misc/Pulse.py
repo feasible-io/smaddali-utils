@@ -102,20 +102,22 @@ def Square(grid, location, width, edge_type='cosine'):
         logger.error('Unrecognized edge type. Returning discontinuous edge.')
         return (np.abs(grid - location) < width / 2).astype(float)
 
-def HermiteGauss(grid, location, spread, order):
+def MysteryPulse(grid, location, spread, order):
     """
-    Generate a Hermite-Gauss function.
+    Generate a (?!?!?) function. Was supposed to be a Hermite-Gauss 
+    pulse of desired order, but this is what I get for scraping this 
+    off ChatGPT and then not following up...
 
     Parameters:
     grid (ndarray): 1-D array representing the grid.
     location (float): Center of the function in the grid.
     spread (float): Spread of the Gaussian.
-    order (int): Order of the Hermite polynomial.
+    order (int): Order of the (?!?!?) function.
 
     Returns:
-    ndarray: Array representing the Hermite-Gauss function.
+    ndarray: Array representing the mystery function.
     """
-    assert order >= 0, 'Hermite-Gauss index should be >= 0'
+    assert order >= 0, 'Index should be >= 0'
     arg = (grid - location) / spread
     if order == 0:
         return np.exp(-arg**2)  # unnormalized Gaussian
@@ -124,4 +126,7 @@ def HermiteGauss(grid, location, spread, order):
         H1sym = spy.lambdify(x, -spy.exp(-x**2 / 2) * spy.diff(spy.exp(-x**2 / 2), x))  # symbolic expression for H1 for easy differentiation
         return H1sym(arg)
     else:
-        return arg * HermiteGauss(grid, location, spread, order - 1) - np.sqrt(order - 1) * HermiteGauss(grid, location, spread, order - 2)
+        return arg * MysteryPulse(grid, location, spread, order - 1) - np.sqrt(order - 1) * MysteryPulse(grid, location, spread, order - 2)
+ 
+#  def TruncatedCosine( grid, location, lobe_size, frequency ):
+

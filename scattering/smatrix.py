@@ -14,35 +14,80 @@
 ################################################################################
 
 import numpy as np
+import functools as ftls
 from logzero import logger
+
+def Redheffer( A, B ):
+    '''
+    Implementation of the Redheffer star product for two scattering matrices. 
+    Currently implemented only for 2x2 matrices. 
+    '''
+    assert np.ndim( A )==2 and np.ndim( B )==2, 'Inputs should be rank-2 objects. '  
+    assert A.shape==B.shape, 'Inputs should have same shape. '
+    assert A.shape == B.shape == ( 2, 2 ), 'Inputs should be 2x2 matrices. '
+
+    A11, A12, A21, A22 = A[0,0], A[0,1], A[1,0], A[1,1]
+    B11, B12, B21, B22 = B[0,0], B[0,1], B[1,0], B[1,1]
+    denom = 1. - A12*B21
+    S11 = A11*B11/denom 
+    S12 = B12 + B11*B22*A12/denom 
+    S21 = A21 + A11*A22*B21/denom 
+    S22 = A22*B22/denom 
+
+    S = np.concatenate( 
+        ( 
+            np.array( [ S11, S12 ] )[np.newaxis,:], 
+            np.array( [ S21, S22 ] )[np.newaxis,:]
+        ), 
+        axis=0
+    )
+    return S
+
 
 class SMatrix: 
 
-    def __init__( self, omega, length, speed, Z_triplet, time_scaler=1. ):
-        assert Z_triplet.size==3, 'Should provide an acoustic impedance triplet when using constructor. '
-        self.Z = Z_triplet
+    def __init__( self, omega, length, speed, Z ):
+        # assert Z.size==3, 'Should provide an acoustic impedance triplet when using constructor. '
+        self.Z = Z
         self.omega = omega
-        self.length = [ length ]
-        self.speed = [ speed ]
-        self.t0 = length / speed / time_scaler
-        self.Build()
+        simple_structure = not isinstance( length, list ) and not isinstance( speed, list )
+        if simple_structure:  
+            self.length = [ length, ]
+            self.speed = [ speed, ]
+            self.t0 = length / speed
+            self.Build()
+        else:
+            self.length = length
+            self.speed = speed
+            # self.t0 = ftls.reduce( lambda x, y: x+y, [ l/v/self.scale for l, v in zip( length, speed ) ] )
 
     def Build( self ):
         denominator = self.Z[1:] + self.Z[:2]
-        t_forw = 2.*self.Z[1:] / denominator                    # transmission coefficient L to R
-        t_back = 2.*self.Z[:2] / denominator                    # transmission coefficient R to L
-        r_forw = ( self.Z[1:] - self.Z[:2] ) / denominator      # reflection coefficient L to R
-        r_back = -r_forw                                        # reflection coefficient R to L
 
+        # these are coefficients for the pressure wave
+        # t_forw = 2.*self.Z[1:] / denominator                    # transmission coefficient L to R
+        # t_back = 2.*self.Z[:2] / denominator                    # transmission coefficient R to L
+        # r_forw = ( self.Z[1:] - self.Z[:2] ) / denominator      # reflection coefficient L to R
+        # r_back = -r_forw                                        # reflection coefficient R to L
 
-        phi = self.omega * self.t0
-        w = np.exp( 1.j*phi ) # Effect of time delay in Fourier space
-        all_internal_reflections = 1 - r_forw[1]*r_back[0]*( w**2 )
-        S11 = ( np.prod( t_forw ) * w ) / all_internal_reflections
-        S22 = ( np.prod( t_back ) * w ) / all_internal_reflections
-        S12 = r_back[1] + ( t_back[1]*r_back[0]*t_forw[1] * (w**2) ) / all_internal_reflections
-        S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] * (w**2) ) / all_internal_reflections
+        # these are coefficients for the velocity wave
+        t_forw = 2.*self.Z[:2] / denominator
+        t_back = 2.*self.Z[1:] / denominator
+        r_forw = ( self.Z[:2] - self.Z[1:] ) / denominator
+        r_back = -r_forw
 
+        self.phi = self.omega * self.t0
+        w = np.exp( 1.j*self.phi ) # Effect of time delay in Fourier space
+        rho = r_forw[1]*r_back[0]
+        S11 = ( np.prod( t_forw ) * w ) / ( 1. - rho*(w**2) )
+        S22 = ( np.prod( t_back ) * w ) / ( 1. - rho*(w**2) )
+        S12 = r_back[1] + ( t_back[1]*r_back[0]*t_forw[1] * ( w**2 ) ) / ( 1. - rho*(w**2) )
+        S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] * ( w**2 ) ) / ( 1. - rho*(w**2) )
+
+        # S11 = np.prod( t_forw ) * w / ( 1. - rho )
+        # S12 = r_back[1] + ( r_back[0]*t_back[1]*t_forw[1] ) / ( 1. - rho )
+        # S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] ) / ( 1. - rho )
+        # S22 = np.prod( t_back ) * wconj / ( 1. - rho )
         self.S = np.array(
             [ 
                 [ S11, S12 ], 
@@ -58,7 +103,7 @@ class SMatrix:
         Sout.length.extend( S2.length )
         Sout.speed.extend( S2.speed )
         Sout.Z = np.concatenate( ( Sout.Z, S2.Z[2:] ) ) 
-        Sout.S = Sout.S @ S2.S
+        Sout.S = Redheffer( self.S, S2.S )
         return Sout
     
     def __imul__( self, S2 ):
@@ -67,7 +112,7 @@ class SMatrix:
         self.length.extend( S2.length )
         self.speed.extend( S2.speed )
         self.Z = np.concatenate( ( self.Z, S2.Z[2:] ) ) 
-        self.S = self.S @ S2.S
+        self.S = Redheffer( self.S, S2.S )
         return self
 
 

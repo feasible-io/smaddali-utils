@@ -46,10 +46,12 @@ def Redheffer( A, B ):
 
 class SMatrix: 
 
-    def __init__( self, omega, length, speed, Z ):
+    def __init__( self, omega, length, speed, Z, field='velocity' ):
         # assert Z.size==3, 'Should provide an acoustic impedance triplet when using constructor. '
         self.Z = Z
         self.omega = omega
+        assert field in [ 'pressure', 'velocity' ], 'Field must either be "pressure" or "velocity". '
+        self.field = field
         simple_structure = not isinstance( length, list ) and not isinstance( speed, list )
         if simple_structure:  
             self.length = [ length, ]
@@ -62,32 +64,33 @@ class SMatrix:
             # self.t0 = ftls.reduce( lambda x, y: x+y, [ l/v/self.scale for l, v in zip( length, speed ) ] )
 
     def Build( self ):
+        '''
+        Build the S-matrix elements based on the user-defined pressure or velocity field. 
+        Note that these fields have different interfacial boundary conditions, and therefore 
+        the corresponding reflection and transmission coefficients are different.
+        '''
         denominator = self.Z[1:] + self.Z[:2]
-
-        # these are coefficients for the pressure wave
-        # t_forw = 2.*self.Z[1:] / denominator                    # transmission coefficient L to R
-        # t_back = 2.*self.Z[:2] / denominator                    # transmission coefficient R to L
-        # r_forw = ( self.Z[1:] - self.Z[:2] ) / denominator      # reflection coefficient L to R
-        # r_back = -r_forw                                        # reflection coefficient R to L
-
-        # these are coefficients for the velocity wave
-        t_forw = 2.*self.Z[:2] / denominator
-        t_back = 2.*self.Z[1:] / denominator
-        r_forw = ( self.Z[:2] - self.Z[1:] ) / denominator
-        r_back = -r_forw
+        if self.field=='pressure':
+            # these are coefficients for the pressure wave
+            t_forw = 2.*self.Z[1:] / denominator                    # transmission coefficient L to R
+            t_back = 2.*self.Z[:2] / denominator                    # transmission coefficient R to L
+            r_forw = ( self.Z[1:] - self.Z[:2] ) / denominator      # reflection coefficient L to R
+            r_back = -r_forw                                        # reflection coefficient R to L
+        elif self.field=='velocity':
+            # these are coefficients for the particle velocity wave
+            t_forw = 2.*self.Z[:2] / denominator
+            t_back = 2.*self.Z[1:] / denominator
+            r_forw = ( self.Z[:2] - self.Z[1:] ) / denominator
+            r_back = -r_forw
 
         self.phi = self.omega * self.t0
-        w = np.exp( 1.j*self.phi ) # Effect of time delay in Fourier space
+        w = np.exp( -1.j*self.phi ) # Effect of time delay in Fourier space
+        wconj = np.conj( w )
         rho = r_forw[1]*r_back[0]
         S11 = ( np.prod( t_forw ) * w ) / ( 1. - rho*(w**2) )
         S22 = ( np.prod( t_back ) * w ) / ( 1. - rho*(w**2) )
         S12 = r_back[1] + ( t_back[1]*r_back[0]*t_forw[1] * ( w**2 ) ) / ( 1. - rho*(w**2) )
         S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] * ( w**2 ) ) / ( 1. - rho*(w**2) )
-
-        # S11 = np.prod( t_forw ) * w / ( 1. - rho )
-        # S12 = r_back[1] + ( r_back[0]*t_back[1]*t_forw[1] ) / ( 1. - rho )
-        # S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] ) / ( 1. - rho )
-        # S22 = np.prod( t_back ) * wconj / ( 1. - rho )
         self.S = np.array(
             [ 
                 [ S11, S12 ], 
@@ -114,12 +117,3 @@ class SMatrix:
         self.Z = np.concatenate( ( self.Z, S2.Z[2:] ) ) 
         self.S = Redheffer( self.S, S2.S )
         return self
-
-
-
-
-
-
-
-
-        

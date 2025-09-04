@@ -118,3 +118,6 @@ dmypy.json
 
 # this is already a git repo; ignore
 plotutils/
+
+# bunch of tet scripts
+test*.py

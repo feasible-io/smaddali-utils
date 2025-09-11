@@ -57,19 +57,20 @@ def Redheffer(A, B):
     S = np.zeros((2, 2), dtype=A.dtype)
 
     # Calculate and assign elements directly to the pre-allocated array
-    S[0, 0] = A11 * B11 / denom
-    S[0, 1] = B12 + B11 * B22 * A12 / denom
-    S[1, 0] = A21 + A11 * A22 * B21 / denom
-    S[1, 1] = A22 * B22 / denom
+    S[0,0] = A11 * B11 / denom
+    S[0,1] = B12 + ( B11 * B22 * A12 / denom )
+    S[1,0] = A21 + ( A11 * A22 * B21 / denom )
+    S[1,1] = A22 * B22 / denom
 
     return S
 
 
 class SMatrix: 
 
-    def __init__( self, omega, length, speed, Z, field='velocity' ):
+    def __init__( self, omega, length, speed, Z, field='velocity', time_offset=0. ):
         # assert Z.size==3, 'Should provide an acoustic impedance triplet when using constructor. '
         self.Z = Z
+        self.offset = time_offset
         self.omega = omega
         assert field in [ 'pressure', 'velocity' ], 'Field must either be "pressure" or "velocity". '
         self.field = field
@@ -103,7 +104,7 @@ class SMatrix:
             t_back = 2.*self.Z[1:] / denominator
             r_forw = ( self.Z[:2] - self.Z[1:] ) / denominator
             r_back = -r_forw
-
+        self.phase_offset = np.exp( -1.j*self.omega*self.offset )
         self.phi = self.omega * self.t0
         w = np.exp( -1.j*self.phi ) # Effect of time delay in Fourier space
         # wconj = np.conj( w )
@@ -112,7 +113,7 @@ class SMatrix:
         S22 = ( np.prod( t_back ) * w ) / ( 1. - rho*(w**2) )
         S12 = r_back[1] + ( t_back[1]*r_back[0]*t_forw[1] * ( w**2 ) ) / ( 1. - rho*(w**2) )
         S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] * ( w**2 ) ) / ( 1. - rho*(w**2) )
-        self.S = np.array(
+        self.S = self.phase_offset * np.array(
             [ 
                 [ S11, S12 ], 
                 [ S21, S22 ]

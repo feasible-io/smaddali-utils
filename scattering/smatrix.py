@@ -12,35 +12,56 @@
 # siddharth@liminalinsights.com
 # 
 ################################################################################
+import numba
 
 import numpy as np
 import functools as ftls
+
 from logzero import logger
 
-def Redheffer( A, B ):
-    '''
-    Implementation of the Redheffer star product for two scattering matrices. 
-    Currently implemented only for 2x2 matrices. 
-    '''
-    assert np.ndim( A )==2 and np.ndim( B )==2, 'Inputs should be rank-2 objects. '  
-    assert A.shape==B.shape, 'Inputs should have same shape. '
-    assert A.shape == B.shape == ( 2, 2 ), 'Inputs should be 2x2 matrices. '
 
-    A11, A12, A21, A22 = A[0,0], A[0,1], A[1,0], A[1,1]
-    B11, B12, B21, B22 = B[0,0], B[0,1], B[1,0], B[1,1]
-    denom = 1. - A12*B21
-    S11 = A11*B11/denom 
-    S12 = B12 + B11*B22*A12/denom 
-    S21 = A21 + A11*A22*B21/denom 
-    S22 = A22*B22/denom 
+# def Redheffer( A, B ):
+#     '''
+#     Implementation of the Redheffer star product for two scattering matrices. 
+#     Currently implemented only for 2x2 matrices. 
+#     '''
+#     A11, A12, A21, A22 = A[0,0], A[0,1], A[1,0], A[1,1]
+#     B11, B12, B21, B22 = B[0,0], B[0,1], B[1,0], B[1,1]
+#     denom = 1. - A12*B21
+#     S11 = A11*B11/denom 
+#     S12 = B12 + B11*B22*A12/denom
+#     S21 = A21 + A11*A22*B21/denom
+#     S22 = A22*B22/denom 
 
-    S = np.concatenate( 
-        ( 
-            np.array( [ S11, S12 ] )[np.newaxis,:], 
-            np.array( [ S21, S22 ] )[np.newaxis,:]
-        ), 
-        axis=0
-    )
+#     S = np.concatenate( 
+#         ( 
+#             np.array( [ S11, S12 ] )[np.newaxis,:], 
+#             np.array( [ S21, S22 ] )[np.newaxis,:]
+#         ), 
+#         axis=0
+#     )
+#     return S
+
+@numba.jit( nopython=True, cache=True )
+def Redheffer(A, B):
+    """
+    Implementation of the Redheffer star product for two scattering matrices.
+    Currently implemented only for 2x2 matrices.
+    """
+    # Unpack matrix elements directly, which is clean and efficient
+    A11, A12, A21, A22 = A.ravel()
+    B11, B12, B21, B22 = B.ravel()
+    denom = 1.0 - A12 * B21
+
+    # Pre-allocate the output matrix S with the correct shape and data type
+    S = np.zeros((2, 2), dtype=A.dtype)
+
+    # Calculate and assign elements directly to the pre-allocated array
+    S[0, 0] = A11 * B11 / denom
+    S[0, 1] = B12 + B11 * B22 * A12 / denom
+    S[1, 0] = A21 + A11 * A22 * B21 / denom
+    S[1, 1] = A22 * B22 / denom
+
     return S
 
 

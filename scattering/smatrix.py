@@ -85,7 +85,7 @@ class SMatrix:
 
         self.phi = self.omega * self.t0
         w = np.exp( -1.j*self.phi ) # Effect of time delay in Fourier space
-        wconj = np.conj( w )
+        # wconj = np.conj( w )
         rho = r_forw[1]*r_back[0]
         S11 = ( np.prod( t_forw ) * w ) / ( 1. - rho*(w**2) )
         S22 = ( np.prod( t_back ) * w ) / ( 1. - rho*(w**2) )

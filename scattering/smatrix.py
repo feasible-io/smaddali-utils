@@ -13,6 +13,7 @@
 # 
 ################################################################################
 import numba
+import copy
 
 import numpy as np
 import functools as ftls
@@ -66,76 +67,75 @@ def Redheffer(A, B):
 
 
 class SMatrix: 
+    '''
+    One-dimensional S-matrix class of waves. 
+    '''
 
-    def __init__( self, omega, length, speed, Z, field='velocity', time_offset=0. ):
-        # assert Z.size==3, 'Should provide an acoustic impedance triplet when using constructor. '
+    def __init__( self, omega, Z, speed, x, field='pressure' ):
+        '''
+        THe S-matrix is defined for an interface located  at x, 
+        with acoustic impedances given by the array Z (left to right), 
+        and the frequency-dependent wavenumber k of the medium at the 
+        observation point (x=0). 
+        '''
+        assert Z.size==2, 'Should provide an acoustic impedance doublet when using constructor. '
+        assert x >= 0., 'Should provide a positive distance. '
         self.Z = Z
-        self.offset = time_offset
         self.omega = omega
-        assert field in [ 'pressure', 'velocity' ], 'Field must either be "pressure" or "velocity". '
+        assert field in [ 'pressure', 'velocity' ], 'Field must be "pressure" or "velocity". '
         self.field = field
-        simple_structure = not isinstance( length, list ) and not isinstance( speed, list )
-        if simple_structure:  
-            self.length = [ length, ]
-            self.speed = [ speed, ]
-            self.t0 = length / speed
-            self.Build()
-        else:
-            self.length = length
-            self.speed = speed
-            # self.t0 = ftls.reduce( lambda x, y: x+y, [ l/v/self.scale for l, v in zip( length, speed ) ] )
+        self.speed = [ speed ]
+        self.x = [ x ]
+        self.Build()
 
     def Build( self ):
         '''
-        Build the S-matrix elements based on the user-defined pressure or velocity field. 
-        Note that these fields have different interfacial boundary conditions, and therefore 
-        the corresponding reflection and transmission coefficients are different.
+        Build the S-matrix elements for the parameterized interface. 
         '''
-        denominator = self.Z[1:] + self.Z[:2]
-        if self.field=='pressure':
-            # these are coefficients for the pressure wave
-            t_forw = 2.*self.Z[1:] / denominator                    # transmission coefficient L to R
-            t_back = 2.*self.Z[:2] / denominator                    # transmission coefficient R to L
-            r_forw = ( self.Z[1:] - self.Z[:2] ) / denominator      # reflection coefficient L to R
-            r_back = -r_forw                                        # reflection coefficient R to L
-        elif self.field=='velocity':
-            # these are coefficients for the particle velocity wave
-            t_forw = 2.*self.Z[:2] / denominator
-            t_back = 2.*self.Z[1:] / denominator
-            r_forw = ( self.Z[:2] - self.Z[1:] ) / denominator
-            r_back = -r_forw
-        self.phase_offset = np.exp( -1.j*self.omega*self.offset )
-        self.phi = self.omega * self.t0
-        w = np.exp( -1.j*self.phi ) # Effect of time delay in Fourier space
-        # wconj = np.conj( w )
-        rho = r_forw[1]*r_back[0]
-        S11 = ( np.prod( t_forw ) * w ) / ( 1. - rho*(w**2) )
-        S22 = ( np.prod( t_back ) * w ) / ( 1. - rho*(w**2) )
-        S12 = r_back[1] + ( t_back[1]*r_back[0]*t_forw[1] * ( w**2 ) ) / ( 1. - rho*(w**2) )
-        S21 = r_forw[0] + ( t_forw[0]*r_forw[1]*t_back[0] * ( w**2 ) ) / ( 1. - rho*(w**2) )
-        self.S = self.phase_offset * np.array(
+        denominator = self.Z.sum()
+        T21, T12 = [ 2.*z/denominator for z in self.Z ]
+        R12, R21 = [ sgn*( self.Z[1]-self.Z[0] )/denominator for sgn in [ 1., -1. ] ]
+        if self.field=='velocity':
+            T12, T21 = T21, T12
+            R12, R21 = R21, R12
+        phase = self.omega/self.speed[0] * self.x[0] # non-dispersive for now
+        phi = np.exp( -1.j * phase )
+        self.S = np.array( 
             [ 
-                [ S11, S12 ], 
-                [ S21, S22 ]
+                [ T12*phi, R21 ], 
+                [ R12*phi*phi, T21*phi ]
             ]
-        ) # the full scattering matrix
-        return
-    
+        )
+
+    def Copy( self ):
+        return copy.deepcopy( self )
+
     def __mul__( self, S2 ):
-        assert ( self.Z[-2:]==S2.Z[:2] ).all(), 'Composing S-matrices requires matched impedances. '
+        assert self.Z[1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
-        Sout = SMatrix( self.omega, self.length, self.speed, self.Z )
-        Sout.length.extend( S2.length )
+        Sout = self.Copy()
+        Sout.x.extend( S2.x )
         Sout.speed.extend( S2.speed )
-        Sout.Z = np.concatenate( ( Sout.Z, S2.Z[2:] ) ) 
+        Sout.Z = np.concatenate( [ Sout.Z[:-1], S2.Z[1:] ] )
         Sout.S = Redheffer( self.S, S2.S )
         return Sout
     
     def __imul__( self, S2 ):
-        assert ( self.Z[-2:]==S2.Z[:2] ).all(), 'Composing S-matrices requires matched impedances. '
+        assert self.Z[1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
-        self.length.extend( S2.length )
+        self.x.extend( S2.x )
         self.speed.extend( S2.speed )
-        self.Z = np.concatenate( ( self.Z, S2.Z[2:] ) ) 
+        self.Z = np.concatenate( [ self.Z[:-1], S2.z[1:] ] )
         self.S = Redheffer( self.S, S2.S )
         return self
+
+
+
+
+
+
+
+    
+
+        
+

@@ -122,3 +122,4 @@ plotutils/
 # bunch of tet scripts
 test*.py
 *.py.old
+*.png

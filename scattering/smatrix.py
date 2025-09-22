@@ -17,7 +17,11 @@ import numba
 import copy
 import numpy as np
 import functools as ftls
+import sympy as sp
+
 from logzero import logger
+from tqdm.auto import tqdm
+
 
 @numba.jit( nopython=True, cache=True )
 def Redheffer(A, B):
@@ -35,13 +39,23 @@ def Redheffer(A, B):
     S[1,1] = A22 * B22 / denom
     return S
 
+def RedhefferSymbolic( A, B ):
+    denom = 1 - A[0,1]*B[1,0]
+    Mred = sp.Matrix( 
+        [ 
+            [ A[0,0]*B[0,0]/denom, B[0,1] + ( B[0,0]*B[1,1]*A[0,1] ) / denom ], 
+            [ A[1,0] + ( A[0,0]*A[1,1]*B[1,0] ) / denom, A[1,1]*B[1,1]/denom ]
+        ]
+    )
+    return Mred
+
 
 class SMatrix: 
     '''
     One-dimensional S-matrix class of waves. 
     '''
 
-    def __init__( self, omega, Z, speed, x, field='pressure' ):
+    def __init__( self, omega, Z, speed, x, field='pressure', build_function=False, modules=[ 'numpy', 'scipy' ] ):
         '''
         THe S-matrix is defined for an interface located  at x, 
         with acoustic impedances given by the array Z (left to right), 
@@ -57,6 +71,8 @@ class SMatrix:
         self.speed = [ speed ]
         self.x = [ x ]
         self.Build()
+        if build_function: 
+            self.BuildFourierMatrixFunction( self, modules=modules )
 
     def Build( self ):
         '''
@@ -81,23 +97,54 @@ class SMatrix:
         return copy.deepcopy( self )
 
     def __mul__( self, S2 ):
-        assert self.Z[1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
+        assert self.Z[-1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
         Sout = self.Copy()
         Sout.x.extend( S2.x )
         Sout.speed.extend( S2.speed )
-        Sout.Z = np.concatenate( [ Sout.Z[:-1], S2.Z[1:] ] )
+        Sout.Z = np.concatenate( [ Sout.Z, S2.Z[1:] ] )
         Sout.S = Redheffer( self.S, S2.S )
         return Sout
     
     def __imul__( self, S2 ):
-        assert self.Z[1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
+        assert self.Z[-1]==S2.Z[0], 'Composing S-matrices requires matched impedances. '
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
         self.x.extend( S2.x )
         self.speed.extend( S2.speed )
-        self.Z = np.concatenate( [ self.Z[:-1], S2.z[1:] ] )
+        self.Z = np.concatenate( [ self.Z, S2.z[1:] ] )
         self.S = Redheffer( self.S, S2.S )
         return self
+    
+    def BuildFourierMatrixFunction( self, modules ):
+        '''
+        Returns a numerical matrix function of the angular frequency ω. 
+        This method returns a symbolic matrix function, and a numeric 
+        matrix function for computational purposes. 
+        '''
+        logger.info( 'Building symbolic S-matrix...' )
+        
+        # define all coefficients
+        T_forw = sp.symbols( ' '.join( [ f'T{n}{n+1}' for n in range( self.Z.size-1 ) ] ) )
+        T_back = sp.symbols( ' '.join( [ f'T{n+1}{n}' for n in range( self.Z.size-1 ) ] ) )
+        R_forw = sp.symbols( ' '.join( [ f'R{n}{n+1}' for n in range( self.Z.size-1 ) ] ) )
+        R_back = sp.symbols( ' '.join( [ f'R{n+1}{n}' for n in range( self.Z.size-1 ) ] ) )
+        time = sp.symbols(  ' '.join( [f't{n}' for n in range( len( self.speed ) )] ) ) # this is L/v for each material
+        omega = sp.symbols( 'omega' )
+        smatrix_list = []
+        for n in range( len( time ) ):
+            my_exp = sp.exp( -sp.I * omega * time[n] )
+            M = sp.Matrix( 
+                [ 
+                    [ T_forw[n]*my_exp, R_back[n] ], 
+                    [ R_forw[n]*my_exp*my_exp, T_back[n]*my_exp ]
+                ]
+            )
+            smatrix_list.append( M )
+        self.M_symb = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
+        # self.M_symb = sp.simplify( self.M_symb ) # this step takes too much time
+        logger.info( 'Done building symbolic S-matrix. ' )
+        self.M_fun = sp.lambdify( ( omega, )+time+T_forw+T_back+R_forw+R_back, self.M_symb, modules=modules )
+        return
 
 
 

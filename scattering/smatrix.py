@@ -55,7 +55,7 @@ class SMatrix:
     One-dimensional S-matrix class of waves. 
     '''
 
-    def __init__( self, omega, Z, speed, x, absorption_coeff=0., field='pressure', build_function=False, modules=[ 'numpy', 'scipy' ] ):
+    def __init__( self, omega, Z, speed, x, absorption_coeff=0., field='pressure', build_symbolic=False ):
         '''
         THe S-matrix is defined for an interface located  at x, 
         with acoustic impedances given by the array Z (left to right), 
@@ -72,8 +72,8 @@ class SMatrix:
         self.x = [ x ]
         self.abs_bb = [ absorption_coeff ] # broadband, frequency-independent absorption coefficient
         self.Build()
-        if build_function: 
-            self.BuildFourierMatrixFunction( self, modules=modules )
+        if build_symbolic: 
+            self.BuildFourierMatrixFunction()
 
     def Build( self ):
         '''
@@ -118,14 +118,13 @@ class SMatrix:
         self.S = Redheffer( self.S, S2.S )
         return self
     
-    def BuildFourierMatrixFunction( self, modules ):
+    def BuildSymbolic( self ):
         '''
         Returns a numerical matrix function of the angular frequency ω. 
         This method returns a symbolic matrix function, and a numeric 
         matrix function for computational purposes. 
         '''
-        logger.info( 'Building symbolic S-matrix...' )
-        logger.warning( 'Absprotion not yet implemented. ' )
+        logger.warning( 'Absorption not yet implemented in symbolic matrix. ' )
         
         # define all coefficients
         T_forw = sp.symbols( ' '.join( [ f'T{n}{n+1}' for n in range( self.Z.size-1 ) ] ) )
@@ -144,19 +143,7 @@ class SMatrix:
                 ]
             )
             smatrix_list.append( sp.simplify( M ) )
-        self.M_symb = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
-        # self.M_symb = sp.simplify( self.M_symb ) # this step takes too much time
-        logger.info( 'Built symbolic S-matrix. ' )
-        self.M_fun = sp.lambdify( ( omega, )+time+T_forw+T_back+R_forw+R_back, self.M_symb, modules=modules )
+        self.M = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
+        self.M_replacement, self.M_reduced = sp.cse( self.M, optimizations='basic' )
         return
-
-
-
-
-
-
-
-    
-
         
-

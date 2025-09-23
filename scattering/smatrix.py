@@ -55,7 +55,7 @@ class SMatrix:
     One-dimensional S-matrix class of waves. 
     '''
 
-    def __init__( self, omega, Z, speed, x, field='pressure', build_function=False, modules=[ 'numpy', 'scipy' ] ):
+    def __init__( self, omega, Z, speed, x, absorption_coeff=0., field='pressure', build_function=False, modules=[ 'numpy', 'scipy' ] ):
         '''
         THe S-matrix is defined for an interface located  at x, 
         with acoustic impedances given by the array Z (left to right), 
@@ -70,6 +70,7 @@ class SMatrix:
         self.field = field
         self.speed = [ speed ]
         self.x = [ x ]
+        self.abs_bb = [ absorption_coeff ] # broadband, frequency-independent absorption coefficient
         self.Build()
         if build_function: 
             self.BuildFourierMatrixFunction( self, modules=modules )
@@ -84,8 +85,8 @@ class SMatrix:
         if self.field=='velocity':
             T12, T21 = T21, T12
             R12, R21 = R21, R12
-        phase = self.omega/self.speed[0] * self.x[0] # non-dispersive for now
-        phi = np.exp( -1.j * phase )
+        phase = ( self.omega/self.speed[0] + self.abs_bb[0] ) * self.x[0] # non-dispersive for now
+        phi = np.exp( -1.j * phase ) # minus sign accounts for the sign effect in the wave equation
         self.S = np.array( 
             [ 
                 [ T12*phi, R21 ], 
@@ -102,6 +103,7 @@ class SMatrix:
         Sout = self.Copy()
         Sout.x.extend( S2.x )
         Sout.speed.extend( S2.speed )
+        Sout.abs_bb.extend( S2.abs_bb )
         Sout.Z = np.concatenate( [ Sout.Z, S2.Z[1:] ] )
         Sout.S = Redheffer( self.S, S2.S )
         return Sout
@@ -111,6 +113,7 @@ class SMatrix:
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
         self.x.extend( S2.x )
         self.speed.extend( S2.speed )
+        self.abs_bb.extend( S2.abs_bb )
         self.Z = np.concatenate( [ self.Z, S2.z[1:] ] )
         self.S = Redheffer( self.S, S2.S )
         return self
@@ -122,6 +125,7 @@ class SMatrix:
         matrix function for computational purposes. 
         '''
         logger.info( 'Building symbolic S-matrix...' )
+        logger.warning( 'Absprotion not yet implemented. ' )
         
         # define all coefficients
         T_forw = sp.symbols( ' '.join( [ f'T{n}{n+1}' for n in range( self.Z.size-1 ) ] ) )
@@ -139,10 +143,10 @@ class SMatrix:
                     [ R_forw[n]*my_exp*my_exp, T_back[n]*my_exp ]
                 ]
             )
-            smatrix_list.append( M )
+            smatrix_list.append( sp.simplify( M ) )
         self.M_symb = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
         # self.M_symb = sp.simplify( self.M_symb ) # this step takes too much time
-        logger.info( 'Done building symbolic S-matrix. ' )
+        logger.info( 'Built symbolic S-matrix. ' )
         self.M_fun = sp.lambdify( ( omega, )+time+T_forw+T_back+R_forw+R_back, self.M_symb, modules=modules )
         return
 

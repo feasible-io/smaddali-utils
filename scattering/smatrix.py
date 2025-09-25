@@ -118,14 +118,9 @@ class SMatrix:
         self.S = Redheffer( self.S, S2.S )
         return self
     
-    def BuildSymbolic( self ):
-        '''
-        Returns a numerical matrix function of the angular frequency ω. 
-        This method returns a symbolic matrix function, and a numeric 
-        matrix function for computational purposes. 
-        '''
+    def BuildSymbolic( self, cse=False, modules='numpy' ):
         logger.warning( 'Absorption not yet implemented in symbolic matrix. ' )
-        
+       
         # define all coefficients
         T_forw = sp.symbols( ' '.join( [ f'T{n}{n+1}' for n in range( self.Z.size-1 ) ] ) )
         T_back = sp.symbols( ' '.join( [ f'T{n+1}{n}' for n in range( self.Z.size-1 ) ] ) )
@@ -133,6 +128,7 @@ class SMatrix:
         R_back = sp.symbols( ' '.join( [ f'R{n+1}{n}' for n in range( self.Z.size-1 ) ] ) )
         time = sp.symbols(  ' '.join( [f't{n}' for n in range( len( self.speed ) )] ) ) # this is L/v for each material
         omega = sp.symbols( 'omega' )
+        self.syms = ( omega, ) + time + T_forw + T_back + R_forw + R_back
         smatrix_list = []
         for n in range( len( time ) ):
             my_exp = sp.exp( -sp.I * omega * time[n] )
@@ -144,6 +140,38 @@ class SMatrix:
             )
             smatrix_list.append( sp.simplify( M ) )
         self.M = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
-        self.M_replacement, self.M_reduced = sp.cse( self.M, optimizations='basic' )
+        if cse: 
+            self.M_replacement_00, self.M_reduced_00 = sp.cse( self.M[0,0], optimizations='basic' ) 
+            self.replacement_funcs = []
+            self.replacement_args = []
+            for _, expr in self.M_replacement_00:
+                lst = list( expr.free_symbols )
+                lst.sort( key=lambda x: str( x ) )
+                lst = tuple( lst )
+                self.replacement_args.append( tuple(  str( l ) for l in lst ) ) # to be used as dict keys at evaluation time
+                myfun = sp.lambdify( lst, expr, modules=modules )
+                self.replacement_funcs.append( myfun )
+            lst = list( self.M_reduced_00[0].free_symbols )
+            lst.sort( key=lambda x: str( x ) )
+            self.args_numerical_final = tuple( str( l ) for l in lst )
+            self.transfer_function = sp.lambdify( tuple( lst ), self.M_reduced_00[0], modules=modules )
         return
+    
+    def Evaluate( self, **input_args ):
+        '''
+        Returns optimized numerical evaluation of S-matrix symbolic expression, 
+        given the physical parameters as input. 
+        '''
+        assert hasattr( self, 'replacement_funcs' ), 'Intermediate sub-expressions not generated. Please rerun BuildSymbolic with "cse=True". '
+        for var, args, func in zip( self.M_replacement_00, self.replacement_args, self.replacement_funcs ):
+            args_numerical = tuple( input_args[st] for st in args )
+            input_args[ str( var ) ] = func( *args_numerical )
+        value = self.transfer_function( *( self.args_numerical_final ) )
+        return value 
+            
+
+
+
+
+
         

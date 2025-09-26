@@ -70,10 +70,10 @@ class SMatrix:
         self.field = field
         self.speed = [ speed ]
         self.x = [ x ]
-        self.abs_bb = [ absorption_coeff ] # broadband, frequency-independent absorption coefficient
+        self.broadband_absorption = [ absorption_coeff ] # frequency-independent absorption coefficient
         self.Build()
         if build_symbolic: 
-            self.BuildFourierMatrixFunction()
+            self.BuildSymbolic()
 
     def Build( self ):
         '''
@@ -85,7 +85,7 @@ class SMatrix:
         if self.field=='velocity':
             T12, T21 = T21, T12
             R12, R21 = R21, R12
-        phase = ( self.omega/self.speed[0] + self.abs_bb[0] ) * self.x[0] # non-dispersive for now
+        phase = ( self.omega/self.speed[0] + self.broadband_absorption[0] ) * self.x[0] # non-dispersive for now
         phi = np.exp( -1.j * phase ) # minus sign accounts for the sign effect in the wave equation
         self.S = np.array( 
             [ 
@@ -103,7 +103,7 @@ class SMatrix:
         Sout = self.Copy()
         Sout.x.extend( S2.x )
         Sout.speed.extend( S2.speed )
-        Sout.abs_bb.extend( S2.abs_bb )
+        Sout.broadband_absorption.extend( S2.broadband_absorption )
         Sout.Z = np.concatenate( [ Sout.Z, S2.Z[1:] ] )
         Sout.S = Redheffer( self.S, S2.S )
         return Sout
@@ -113,7 +113,7 @@ class SMatrix:
         assert self.omega==S2.omega, 'Frequency mismatch. ' 
         self.x.extend( S2.x )
         self.speed.extend( S2.speed )
-        self.abs_bb.extend( S2.abs_bb )
+        self.broadband_absorption.extend( S2.broadband_absorption )
         self.Z = np.concatenate( [ self.Z, S2.z[1:] ] )
         self.S = Redheffer( self.S, S2.S )
         return self
@@ -141,6 +141,7 @@ class SMatrix:
             smatrix_list.append( sp.simplify( M ) )
         self.M = ftls.reduce( RedhefferSymbolic, tqdm( smatrix_list, desc='Composing S-matrices' ) )
         if cse: 
+            logger.info( 'Applying common sub-expression elimination...' )
             self.M_replacement_00, self.M_reduced_00 = sp.cse( self.M[0,0], optimizations='basic' ) 
             self.replacement_funcs = []
             self.replacement_args = []
@@ -159,14 +160,16 @@ class SMatrix:
     
     def Evaluate( self, **input_args ):
         '''
-        Returns optimized numerical evaluation of S-matrix symbolic expression, 
+        Returns optimized numerical evaluation of the transfer function (frequency response), 
         given the physical parameters as input. 
         '''
-        assert hasattr( self, 'replacement_funcs' ), 'Intermediate sub-expressions not generated. Please rerun BuildSymbolic with "cse=True". '
+        assert hasattr( self, 'replacement_funcs' ), 'Sub-expressions not generated. Please rerun BuildSymbolic with "cse=True". '
         for var, args, func in zip( self.M_replacement_00, self.replacement_args, self.replacement_funcs ):
             args_numerical = tuple( input_args[st] for st in args )
-            input_args[ str( var ) ] = func( *args_numerical )
-        value = self.transfer_function( *( self.args_numerical_final ) )
+            input_args[ str( var[0] ) ] = func( *args_numerical )
+        # print( input_args )
+        payload = tuple( input_args[st] for st in self.args_numerical_final )
+        value = self.transfer_function( *payload )
         return value 
             
 
